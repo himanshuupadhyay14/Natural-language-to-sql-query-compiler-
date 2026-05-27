@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Natural Language to SQL</title>
+    <style>
+        :root {
+            --bg: #f5efe5;
+            --panel: rgba(255, 250, 242, 0.92);
+            --panel-strong: #fffdf9;
+            --ink: #1f2937;
+            --muted: #6b7280;
+            --line: rgba(148, 163, 184, 0.28);
+            --accent: #c96f4a;
+            --accent-dark: #8f4d31;
+            --accent-soft: rgba(201, 111, 74, 0.12);
+            --success: #1f7a52;
+            --error: #b42318;
+            --shadow: 0 24px 60px rgba(84, 52, 34, 0.16);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Georgia, "Times New Roman", serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(201, 111, 74, 0.18), transparent 30%),
+                radial-gradient(circle at bottom right, rgba(63, 98, 18, 0.12), transparent 28%),
+                linear-gradient(145deg, #f4ecdf 0%, #efe4d6 45%, #f7f1e8 100%);
+            padding: 32px 18px;
+        }
+
+        .shell {
+            max-width: 1180px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+            gap: 24px;
+            align-items: start;
+        }
+
+        .hero,
+        .workspace {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(12px);
+        }
+
+        .hero {
+            padding: 28px;
+            position: sticky;
+            top: 24px;
+            overflow: hidden;
+        }
+
+        .hero::after {
+            content: "";
+            position: absolute;
+            inset: auto -60px -60px auto;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(201, 111, 74, 0.22), transparent 65%);
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent-dark);
+            font-size: 0.88rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 18px 0 12px;
+            font-size: clamp(2.2rem, 4vw, 3.6rem);
+            line-height: 0.94;
+            font-weight: 700;
+        }
+
+        .hero p,
+        .subtitle,
+        .hint,
+        .empty-state p {
+            color: var(--muted);
+            line-height: 1.65;
+        }
+
+        .example-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .example {
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.54);
+            font-size: 0.98rem;
+        }
+
+        .workspace {
+            padding: 28px;
+        }
+
+        .workspace-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 24px;
+        }
+
+        .workspace-header h2 {
+            margin: 0;
+            font-size: 1.6rem;
+        }
+
+        .badge {
+            white-space: nowrap;
+            border-radius: 999px;
+            padding: 10px 14px;
+            background: #2f3b2f;
+            color: #f7f1e8;
+            font-size: 0.88rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        form {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            border: 1px solid rgba(143, 77, 49, 0.18);
+            background: var(--panel-strong);
+            border-radius: 18px;
+            padding: 18px 20px;
+            font-size: 1rem;
+            color: var(--ink);
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+            transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent);
+            transform: translateY(-1px);
+            box-shadow: 0 0 0 4px rgba(201, 111, 74, 0.15);
+        }
+
+        button {
+            border: none;
+            border-radius: 18px;
+            padding: 0 24px;
+            min-height: 58px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            color: #fffaf5;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 14px 24px rgba(143, 77, 49, 0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 18px 28px rgba(143, 77, 49, 0.24);
+        }
+
+        .hint {
+            margin: 0 0 24px;
+            font-size: 0.96rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 18px;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.58);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(255, 248, 240, 0.76);
+        }
+
+        .panel-header h3 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .panel-body {
+            padding: 18px;
+        }
+
+        .compiler-block {
+            margin: 0 0 14px;
+        }
+
+        .compiler-block:last-child {
+            margin-bottom: 0;
+        }
+
+        .compiler-lines {
+            display: grid;
+            gap: 10px;
+        }
+
+        .compiler-line {
+            margin: 0;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(201, 111, 74, 0.08);
+            font-family: "Courier New", monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .sql-box {
+            margin: 0;
+            padding: 16px;
+            border-radius: 16px;
+            background: #241f1a;
+            color: #f8ebe1;
+            font-family: "Courier New", monospace;
+            font-size: 0.94rem;
+            line-height: 1.55;
+            overflow-x: auto;
+        }
+
+        .status {
+            margin: 0;
+            padding: 14px 16px;
+            border-radius: 16px;
+            font-weight: 700;
+        }
+
+        .status.success {
+            background: rgba(31, 122, 82, 0.12);
+            color: var(--success);
+        }
+
+        .status.error {
+            background: rgba(180, 35, 24, 0.12);
+            color: var(--error);
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 420px;
+        }
+
+        th,
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--line);
+            text-align: left;
+        }
+
+        th {
+            color: var(--muted);
+            font-size: 0.82rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        td {
+            font-size: 0.98rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .empty-state {
+            border: 1px dashed rgba(143, 77, 49, 0.26);
+            border-radius: 22px;
+            padding: 36px 24px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.42);
+        }
+
+        .empty-state h3 {
+            margin: 0 0 10px;
+            font-size: 1.2rem;
+        }
+
+        @media (max-width: 920px) {
+            .shell {
+                grid-template-columns: 1fr;
+            }
+
+            .hero {
+                position: static;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 18px 12px;
+            }
+
+            .hero,
+            .workspace {
+                padding: 20px;
+                border-radius: 22px;
+            }
+
+            .workspace-header {
+                flex-direction: column;
+            }
+
+            form {
+                grid-template-columns: 1fr;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <aside class="hero">
+            <div class="eyebrow">Natural Language SQL</div>
+            <h1>Ask the database like you would ask a person.</h1>
+            <p>
+                This workspace turns plain English into SQL for the <strong>students</strong> table,
+                then shows you the exact query before the result comes back.
+            </p>
+
+            <div class="example-list">
+                <div class="example">Show students with marks greater than 80</div>
+                <div class="example">Count students in department sales</div>
+                <div class="example">Sum marks in department marketing</div>
+                <div class="example">Show maximum marks</div>
+                <div class="example">Add name Riya marks 91 department marketing</div>
+                <div class="example">Update id 2 change department to hr</div>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <div class="workspace-header">
+                <div>
+                    <h2>Query Console</h2>
+                    <p class="subtitle">Try a question, inspect the SQL, and review the returned rows in one place.</p>
+                </div>
+                <div class="badge">students table</div>
+            </div>
+
+            <form method="POST">
+                <input
+                    type="text"
+                    name="query"
+                    placeholder="Example: show students in department marketing"
+                    value="{{ user_query }}"
+                    required
+                >
+                <button type="submit">Run Query</button>
+            </form>
+
+            <p class="hint">Supported actions: `select`, `count`, `average`, `sum`, `min`, `max`, `insert`, `update`, `delete`. The compiler view now shows tokens and a simplified AST for each request.</p>
+
+            {% if sql_query or results %}
+                <div class="grid">
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>Generated SQL</h3>
+                        </div>
+                        <div class="panel-body">
+                            {% if sql_query %}
+                                <pre class="sql-box">{{ sql_query }}</pre>
+                            {% else %}
+                                <p class="status error">The request could not be translated into a valid SQL statement.</p>
+                            {% endif %}
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>Compiler Phases</h3>
+                        </div>
+                        <div class="panel-body">
+                            <div class="compiler-block">
+                                <p><strong>Lexical analysis</strong></p>
+                                {% if tokens %}
+                                    <p class="compiler-line">{{ tokens|join(', ') }}</p>
+                                {% else %}
+                                    <p class="status error">No tokens generated.</p>
+                                {% endif %}
+                            </div>
+
+                            <div class="compiler-block">
+                                <p><strong>Syntax and semantic summary</strong></p>
+                                {% if ast_summary %}
+                                    <div class="compiler-lines">
+                                        {% for item in ast_summary %}
+                                            <p class="compiler-line">{{ item }}</p>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <p class="status error">Compilation stopped before the AST stage.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>Response</h3>
+                        </div>
+                        <div class="panel-body">
+                            {% if results and columns == ["Status"] %}
+                                <p class="status success">{{ results[0][0] }}</p>
+                            {% elif columns == ["Error"] %}
+                                <p class="status error">{{ results[0][0] }}</p>
+                            {% elif columns and results %}
+                                {% if results|length == 1 and results[0]|length == 1 and sql_query and ('COUNT(' in sql_query or 'AVG(' in sql_query or 'SUM(' in sql_query or 'MIN(' in sql_query or 'MAX(' in sql_query) %}
+                                    <p class="status success">Aggregate result: {{ results[0][0] }}</p>
+                                {% else %}
+                                <div class="table-wrap">
+                                    <table>
+                                        <tr>
+                                            {% for col in columns %}
+                                                <th>{{ col }}</th>
+                                            {% endfor %}
+                                        </tr>
+                                        {% for row in results %}
+                                            <tr>
+                                                {% for item in row %}
+                                                    <td>{{ item }}</td>
+                                                {% endfor %}
+                                            </tr>
+                                        {% endfor %}
+                                    </table>
+                                </div>
+                                {% endif %}
+                            {% elif columns %}
+                                <p class="status success">Query ran successfully, but there were no matching rows.</p>
+                            {% else %}
+                                <p class="status error">No response available.</p>
+                            {% endif %}
+                        </div>
+                    </section>
+                </div>
+            {% else %}
+                <section class="empty-state">
+                    <h3>Ready when you are</h3>
+                    <p>Start with a natural-language request and the app will generate SQL plus a preview of the result set.</p>
+                </section>
+            {% endif %}
+        </main>
+    </div>
+</body>
+</html>
