@@ -1,0 +1,3 @@
+{
+  "students": ["id", "name", "marks", "department"]
+}
